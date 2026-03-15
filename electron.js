@@ -107,29 +107,63 @@ ipcMain.handle('load-data', async (event, folderPath) => {
   }
 });
 
+const globalDataPath = () => path.join(app.getPath('userData'), 'global-data.json');
+
+ipcMain.handle('save-global-data', async (event, data) => {
+  try {
+    fs.writeFileSync(globalDataPath(), JSON.stringify(data, null, 2));
+    return { success: true };
+  } catch (err) {
+    return { success: false };
+  }
+});
+
+ipcMain.handle('load-global-data', async () => {
+  try {
+    const p = globalDataPath();
+    if (fs.existsSync(p)) return JSON.parse(fs.readFileSync(p, 'utf8'));
+    return null;
+  } catch (err) {
+    return null;
+  }
+});
+
 // Cache: original file path -> temp jpg path
 const previewCache = new Map();
+
+// Valid JPEG marker bytes that can follow FF D8 FF in a real JPEG header
+const VALID_JPEG_MARKERS = new Set([
+  0xE0, 0xE1, 0xE2, 0xE3, 0xE4, 0xE5, 0xE6, 0xE7, // APP0-APP7
+  0xE8, 0xE9, 0xEA, 0xEB, 0xEC, 0xED, 0xEE, 0xEF, // APP8-APP15
+  0xDB, // DQT (quantization table) — common in camera embedded previews
+  0xC0, 0xC1, 0xC2, 0xC3, 0xC4, // SOF0-SOF3 + DHT
+  0xFE, // COM
+]);
 
 // Scan a file buffer for embedded JPEG blobs (camera RAW files embed JPEG previews in EXIF)
 function extractLargestEmbeddedJpeg(buf) {
   const soiMarker = Buffer.from([0xFF, 0xD8, 0xFF]);
   const eoiMarker = Buffer.from([0xFF, 0xD9]);
 
-  // Collect all SOI positions
-  const sois = [];
+  // Collect ALL SOI positions (used as chunk boundaries to contain EOI search)
+  const allSois = [];
+  // Track which are real JPEG headers (valid 4th byte)
+  const validSoiSet = new Set();
   let pos = 0;
-  while (pos < buf.length - 2) {
+  while (pos < buf.length - 3) {
     const idx = buf.indexOf(soiMarker, pos);
     if (idx === -1) break;
-    sois.push(idx);
+    allSois.push(idx);
+    if (VALID_JPEG_MARKERS.has(buf[idx + 3])) validSoiSet.add(idx);
     pos = idx + 1;
   }
 
   let bestBuf = null;
-  for (let i = 0; i < sois.length; i++) {
-    const start = sois[i];
-    const searchEnd = i + 1 < sois.length ? sois[i + 1] : buf.length;
-    // Find the last EOI within this chunk (between this SOI and the next one)
+  for (let i = 0; i < allSois.length; i++) {
+    const start = allSois[i];
+    if (!validSoiSet.has(start)) continue; // skip false SOI matches
+    // Use the next SOI (any) as the boundary so EOI search stays within this JPEG's data
+    const searchEnd = i + 1 < allSois.length ? allSois[i + 1] : buf.length;
     const chunk = buf.slice(start, searchEnd);
     const eoiPos = chunk.lastIndexOf(eoiMarker);
     if (eoiPos <= 0) continue;

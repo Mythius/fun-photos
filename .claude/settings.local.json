@@ -4,7 +4,8 @@
       "Bash(exiftool -b -PreviewImage \"C:\\\\Users\\\\2021l\\\\OneDrive\\\\Documents\\\\School\\\\Photography\\\\8.0 Scavenger Hunt\\\\DSC_0146.NEF\")",
       "Bash(echo \"EXIT:$?\")",
       "Bash(ffmpeg -y -i \"C:\\\\Users\\\\2021l\\\\OneDrive\\\\Documents\\\\School\\\\Photography\\\\8.0 Scavenger Hunt\\\\DSC_0146.NEF\" -frames:v 1 -q:v 2 \"$TEMP/test_nef.jpg\")",
-      "Read(//c/Github/fun-photos/$TEMP/**)"
+      "Read(//c/Github/fun-photos/$TEMP/**)",
+      "Bash(node -e \":*)"
     ]
   }
 }

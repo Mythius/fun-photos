@@ -687,8 +687,13 @@
       <button class="quick-tag" onclick="addTag('People')">+ People</button>
       <button class="quick-tag" onclick="addTag('Nature')">+ Nature</button>
       <button class="quick-tag" onclick="addTag('Travel')">+ Travel</button>
+      <div id="custom-quick-tags"></div>
       <input class="tag-input" id="tag-input" type="text"
              placeholder="+ tag…" onkeydown="onTagKey(event)" />
+      <button class="quick-tag" id="btn-copy-tags" onclick="copyPrevTags()"
+              style="opacity:0.45;border-style:dashed" title="Copy tags from previous photo">
+        [T] prev tags
+      </button>
     </div>
 
     <!-- Photo card -->
@@ -764,10 +769,12 @@
   let sortedCount  = 0;
   let busy         = false;
   let photoData    = {};   // { name: { category, favorite, tags } }
-  let curFav        = false;
-  let curTags       = [];
-  let curTempPath   = null;
+  let curFav         = false;
+  let curTags        = [];
+  let curTempPath    = null;
   let presortedCount = 0;
+  let customTagSet   = new Set();
+  let prevTags       = [];
 
   const DISPLAY_EXTS = new Set(['.jpg','.jpeg','.png','.webp','.gif','.bmp']);
   const RAW_EXTS     = new Set(['.nef','.cr2','.cr3','.arw','.dng','.raf','.orf','.rw2']);
@@ -790,6 +797,14 @@
   }
   makeStars('stars-bg', 90);
 
+  // ── Load global money on startup ─────────────────────────
+  ipcRenderer.invoke('load-global-data').then(data => {
+    if (data?.money) {
+      money = data.money;
+      document.getElementById('money-badge').textContent = `💰 $${money}`;
+    }
+  });
+
   // ── Folder selection ─────────────────────────────────────
   async function selectFolder() {
     const folder = await ipcRenderer.invoke('select-folder');
@@ -801,13 +816,21 @@
 
     photos         = scanned.photos;
     presortedCount = scanned.presorted;
-    money          = 0;
     sortedCount    = 0;
     idx            = 0;
     photoData      = {};
+    customTagSet   = new Set();
+    prevTags       = [];
 
     const saved = await ipcRenderer.invoke('load-data', folder);
-    if (saved?.photos) photoData = saved.photos;
+    if (saved?.photos) {
+      photoData   = saved.photos;
+      sortedCount = Object.values(photoData).filter(d => d.category).length;
+    }
+    if (saved?.customTags) {
+      customTagSet = new Set(saved.customTags);
+      renderCustomQuickTags();
+    }
 
     document.getElementById('cnt-tot').textContent = photos.length + presortedCount;
     showScreen('sorting');
@@ -918,8 +941,30 @@
     tag = tag.trim();
     if (!tag || curTags.includes(tag)) return;
     curTags.push(tag);
+    if (!['Portrait','Landscape','People','Nature','Travel'].includes(tag)) {
+      customTagSet.add(tag);
+      renderCustomQuickTags();
+    }
     refreshTagsUI();
     savePhotoData();
+  }
+
+  function renderCustomQuickTags() {
+    const area = document.getElementById('custom-quick-tags');
+    area.innerHTML = '';
+    for (const tag of customTagSet) {
+      const btn = document.createElement('button');
+      btn.className = 'quick-tag';
+      btn.textContent = `+ ${tag}`;
+      btn.onclick = () => addTag(tag);
+      area.appendChild(btn);
+    }
+  }
+
+  function copyPrevTags() {
+    if (!prevTags.length) { toast('No previous tags to copy'); return; }
+    prevTags.forEach(t => addTag(t));
+    toast(`Copied ${prevTags.length} tag${prevTags.length > 1 ? 's' : ''} from previous photo`);
   }
   function removeTag(tag) {
     curTags = curTags.filter(t => t !== tag);
@@ -954,7 +999,7 @@
       favorite: curFav,
       tags: [...curTags]
     };
-    ipcRenderer.invoke('save-data', folderPath, { photos: photoData });
+    ipcRenderer.invoke('save-data', folderPath, { photos: photoData, customTags: [...customTagSet] });
   }
 
   // ── Sort ─────────────────────────────────────────────────
@@ -975,15 +1020,18 @@
     const exitCls = { Blurry:'exit-left', 'In-Between':'exit-up', Clear:'exit-right' }[category];
     card.classList.add(exitCls);
 
+    prevTags = [...curTags];
+
     // Persist
     photoData[p.name] = { category, favorite: curFav, tags: [...curTags] };
     await ipcRenderer.invoke('move-file', p.path, category);
-    await ipcRenderer.invoke('save-data', folderPath, { photos: photoData });
+    await ipcRenderer.invoke('save-data', folderPath, { photos: photoData, customTags: [...customTagSet] });
 
     sortedCount++;
     idx++;
     bumpMoney(1);
     checkReward();
+    ipcRenderer.invoke('save-global-data', { money });
 
     setTimeout(() => { busy = false; loadPhoto(); }, 340);
   }
@@ -1056,8 +1104,10 @@
 
   function resetApp() {
     if (curTempPath) { ipcRenderer.invoke('delete-temp-preview', curTempPath); curTempPath = null; }
-    photos = []; idx = 0; money = 0; folderPath = '';
+    photos = []; idx = 0; folderPath = '';
     sortedCount = 0; busy = false; photoData = {}; presortedCount = 0;
+    customTagSet = new Set(); prevTags = [];
+    document.getElementById('custom-quick-tags').innerHTML = '';
     showScreen('welcome');
     document.getElementById('welcome-screen').style.display = 'flex';
     document.getElementById('sorting-screen').style.display = 'none';
@@ -1079,6 +1129,7 @@
     const map = { a:'Blurry', A:'Blurry', s:'In-Between', S:'In-Between', d:'Clear', D:'Clear' };
     if (map[e.key]) { e.preventDefault(); doSort(map[e.key]); }
     if (e.key === 'f' || e.key === 'F') toggleFav();
+    if (e.key === 't' || e.key === 'T') copyPrevTags();
   });
 
   // ── Util ─────────────────────────────────────────────────
