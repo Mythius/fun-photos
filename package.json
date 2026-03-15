@@ -11,7 +11,7 @@
   },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "electron ."
+    "start": ".\\node_modules\\electron\\dist\\electron.exe . --disable-gpu-shader-disk-cache"
   },
   "keywords": [],
   "author": "",
